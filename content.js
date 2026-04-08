@@ -1,6 +1,5 @@
-// CheburTube v3 — content.js
-// Notion × Y2K × Frutiger Aero design system
-// White/black/grey + red accents
+// CheburTube v4 — content.js
+// Notion × Y2K × Frutiger Aero — white/grey/black + red accents
 
 (() => {
   'use strict';
@@ -9,39 +8,34 @@
   const FREE_LIMIT_BYTES = FREE_LIMIT_GB * 1024 ** 3;
   const PRICE_PER_GB = 150;
 
-  // Qualities ordered high → low
+  // All qualities high → low
   const QUALITIES = [
-    { label: '2160p', mbps: 20.0 },
-    { label: '1440p60', mbps: 14.0 },
-    { label: '1440p', mbps: 10.0 },
-    { label: '1080p60', mbps: 6.00 },
-    { label: '1080p', mbps: 4.50 },
-    { label: '720p60', mbps: 3.50 },
-    { label: '720p', mbps: 2.50 },
-    { label: '480p', mbps: 0.80 },
-    { label: '360p', mbps: 0.50 },
-    { label: '240p', mbps: 0.25 },
-    { label: '144p', mbps: 0.10 },
+    { label: '2160p', mbps: 20.0, height: 2160 },
+    { label: '1440p', mbps: 10.0, height: 1440 },
+    { label: '1080p', mbps: 4.50, height: 1080 },
+    { label: '720p',  mbps: 2.50, height: 720  },
+    { label: '480p',  mbps: 0.80, height: 480  },
+    { label: '360p',  mbps: 0.50, height: 360  },
+    { label: '240p',  mbps: 0.25, height: 240  },
+    { label: '144p',  mbps: 0.10, height: 144  },
   ];
 
-  // Notion-style color palette for quality tags (high→low gradient)
+  // Notion-style palette high→low
   const QUALITY_COLORS = [
-    { bg: '#FFDDD2', text: '#C9321F', border: '#F5B8AC' }, // 2160p   — red
-    { bg: '#FFE7D0', text: '#C96B1F', border: '#F5CFB0' }, // 1440p60 — orange
-    { bg: '#FFF0C0', text: '#B58B00', border: '#EDD980' }, // 1440p   — yellow
-    { bg: '#E8F5E0', text: '#2D7A2D', border: '#B8DDA0' }, // 1080p60 — green
-    { bg: '#E0F0E8', text: '#1E6E52', border: '#A0D4BA' }, // 1080p   — teal
-    { bg: '#E0EEF8', text: '#2058A0', border: '#A0C8E8' }, // 720p60  — blue
-    { bg: '#EAE8F8', text: '#4A3A9A', border: '#C0B8E8' }, // 720p    — purple
-    { bg: '#F5E8F8', text: '#7A3A8A', border: '#DAAAE0' }, // 480p    — violet
-    { bg: '#F8E8F0', text: '#8A3A60', border: '#E0A8C0' }, // 360p    — pink
-    { bg: '#F0F0F0', text: '#606060', border: '#D0D0D0' }, // 240p    — grey
-    { bg: '#E8E8E8', text: '#808080', border: '#C8C8C8' }, // 144p    — light grey
+    { bg: '#FFDDD2', text: '#C9321F', border: '#F5B8AC' },
+    { bg: '#FFE7D0', text: '#C96B1F', border: '#F5CFB0' },
+    { bg: '#FFF0C0', text: '#B58B00', border: '#EDD980' },
+    { bg: '#E8F5E0', text: '#2D7A2D', border: '#B8DDA0' },
+    { bg: '#E0EEF8', text: '#2058A0', border: '#A0C8E8' },
+    { bg: '#EAE8F8', text: '#4A3A9A', border: '#C0B8E8' },
+    { bg: '#F0F0F0', text: '#606060', border: '#D0D0D0' },
+    { bg: '#E8E8E8', text: '#808080', border: '#C8C8C8' },
   ];
 
   let currentVideoBytes = 0;
   let boardInterval = null;
-  let noFreeLimit = false; // toggle: ignore free 15GB
+  let noFreeLimit = false;
+  let maxVideoHeight = 0; // detected max quality of current video
 
   // ── Storage ───────────────────────────────────────────────────────
   function saveBytes(bytes) {
@@ -58,26 +52,67 @@
 
   // ── Math ──────────────────────────────────────────────────────────
   function bytesToGB(b) { return b / (1024 ** 3); }
-
   function calcCost(bytes, ignoreLimit) {
     const gb = bytesToGB(bytes);
     if (ignoreLimit) return gb * PRICE_PER_GB;
-    const paidGB = Math.max(0, gb - FREE_LIMIT_GB);
-    return paidGB * PRICE_PER_GB;
+    return Math.max(0, gb - FREE_LIMIT_GB) * PRICE_PER_GB;
   }
-
-  // Стоимость ролика — абсолютная (без учёта лимита, просто сколько стоит)
-  function calcRawCost(bytes) {
-    return bytesToGB(bytes) * PRICE_PER_GB;
-  }
-
+  function calcRawCost(bytes) { return bytesToGB(bytes) * PRICE_PER_GB; }
   function ceilRub(cost) {
     if (cost <= 0) return '0 ₽';
     return Math.ceil(cost) + ' ₽';
   }
-
   function estimateBytes(mbps, durationSec) {
     return (mbps * 1_000_000 / 8) * durationSec;
+  }
+
+  // ── Detect available qualities from YouTube player ────────────────
+  function detectMaxQuality() {
+    try {
+      // YouTube player API
+      const player = document.getElementById('movie_player');
+      if (player && typeof player.getAvailableQualityLevels === 'function') {
+        const levels = player.getAvailableQualityLevels(); // e.g. ['hd2160','hd1080','hd720','large','medium','small','tiny']
+        const map = { hd2160: 2160, hd1440: 1440, hd1080: 1080, hd720: 720, large: 480, medium: 360, small: 240, tiny: 144 };
+        let max = 0;
+        for (const l of levels) { if (map[l] && map[l] > max) max = map[l]; }
+        if (max > 0) { maxVideoHeight = max; return; }
+      }
+    } catch (_) {}
+
+    // Fallback: use current video element resolution as minimum proxy
+    const v = document.querySelector('video');
+    if (v && v.videoHeight > 0) {
+      // videoHeight is the currently playing quality, not the max
+      // but we keep updating: if we see a higher value later, update
+      if (v.videoHeight > maxVideoHeight) maxVideoHeight = v.videoHeight;
+    }
+  }
+
+  // Filter qualities to show (only those ≤ maxVideoHeight)
+  function availableQualities() {
+    if (maxVideoHeight === 0) return QUALITIES; // not detected yet, show all
+    return QUALITIES.filter(q => q.height <= maxVideoHeight);
+  }
+
+  // ── Change quality via YouTube player API ─────────────────────────
+  function setQuality(label) {
+    try {
+      const player = document.getElementById('movie_player');
+      if (!player) return;
+
+      // Map label → YouTube quality string
+      const map = { '2160p': 'hd2160', '1440p': 'hd1440', '1080p': 'hd1080', '720p': 'hd720', '480p': 'large', '360p': 'medium', '240p': 'small', '144p': 'tiny' };
+      const ytQ = map[label];
+      if (!ytQ) return;
+
+      if (typeof player.setPlaybackQuality === 'function') {
+        player.setPlaybackQuality(ytQ);
+      }
+      if (typeof player.setPlaybackQualityRange === 'function') {
+        player.setPlaybackQualityRange(ytQ, ytQ);
+      }
+    } catch (e) { console.warn('CheburTube: setQuality failed', e); }
   }
 
   // ── Byte tracking ─────────────────────────────────────────────────
@@ -95,17 +130,12 @@
     try { obs.observe({ entryTypes: ['resource'] }); } catch (_) {}
   }
 
-  // ── DOM helpers ───────────────────────────────────────────────────
-  function q(id) { return document.getElementById(id); }
-  function qs(sel) { return document.querySelector(sel); }
-
-  // ── Inject CSS ────────────────────────────────────────────────────
+  // ── CSS ───────────────────────────────────────────────────────────
   function injectCSS() {
-    if (q('ct-styles')) return;
+    if (document.getElementById('ct-styles')) return;
     const s = document.createElement('style');
     s.id = 'ct-styles';
     s.textContent = `
-      /* ══ CheburTube v3 — Notion × Y2K × Frutiger Aero ══ */
       #ct-board {
         font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
         background: #FFFFFF;
@@ -115,10 +145,7 @@
         margin: 0 0 12px 0;
         width: 100%;
         color: #1A1A1A;
-        box-shadow:
-          0 1px 3px rgba(0,0,0,0.06),
-          0 4px 16px rgba(0,0,0,0.04),
-          inset 0 0 0 1px rgba(255,255,255,0.8);
+        box-shadow: 0 1px 3px rgba(0,0,0,0.06), 0 4px 16px rgba(0,0,0,0.04);
       }
 
       /* Header */
@@ -126,7 +153,7 @@
         display: flex;
         align-items: center;
         justify-content: space-between;
-        padding: 10px 14px 9px;
+        padding: 9px 14px 8px;
         border-bottom: 1px solid #F0F0F0;
         background: linear-gradient(180deg, #FAFAFA 0%, #F5F5F5 100%);
       }
@@ -136,32 +163,30 @@
         letter-spacing: -0.3px;
         color: #111;
       }
-      .ct-dots {
-        display: flex;
-        gap: 5px;
-        align-items: center;
-      }
+      .ct-dots { display: flex; gap: 5px; align-items: center; }
       .ct-dot {
-        width: 11px; height: 11px;
-        border-radius: 50%;
+        width: 11px; height: 11px; border-radius: 50%;
         box-shadow: inset 0 1px 1px rgba(255,255,255,0.5), 0 1px 2px rgba(0,0,0,0.2);
       }
       .ct-dot-r { background: radial-gradient(circle at 35% 35%, #FF7A6E, #E0443A); }
       .ct-dot-y { background: radial-gradient(circle at 35% 35%, #FFD062, #E0A01A); }
       .ct-dot-g { background: radial-gradient(circle at 35% 35%, #66D166, #2AA82A); }
 
-      /* Stats row */
+      /* Stats — 2×2 grid */
       .ct-stats {
         display: grid;
-        grid-template-columns: 1fr 1fr 1fr 1fr;
-        border-bottom: 1px solid #F0F0F0;
+        grid-template-columns: 1fr 1fr;
+        grid-template-rows: auto auto;
       }
       .ct-stat {
-        padding: 10px 12px;
+        padding: 9px 12px;
         border-right: 1px solid #F0F0F0;
+        border-bottom: 1px solid #F0F0F0;
         min-width: 0;
       }
-      .ct-stat:last-child { border-right: none; }
+      .ct-stat:nth-child(2) { border-right: none; }
+      .ct-stat:nth-child(3) { border-bottom: none; }
+      .ct-stat:nth-child(4) { border-right: none; border-bottom: none; }
       .ct-stat-lbl {
         font-size: 9px;
         text-transform: uppercase;
@@ -174,7 +199,7 @@
         text-overflow: ellipsis;
       }
       .ct-stat-val {
-        font-size: 16px;
+        font-size: 17px;
         font-weight: 800;
         letter-spacing: -0.5px;
         color: #111;
@@ -191,8 +216,8 @@
         overflow: hidden;
         text-overflow: ellipsis;
       }
-      .ct-val-red { color: #D63030 !important; }
-      .ct-val-green { color: #1E7E34 !important; }
+      .ct-red { color: #D63030 !important; }
+      .ct-green { color: #1E7E34 !important; }
 
       /* Progress */
       .ct-prog-wrap {
@@ -212,36 +237,22 @@
         color: #999;
         font-weight: 600;
       }
-      .ct-prog-pct {
-        font-size: 9px;
-        font-weight: 700;
-        color: #555;
-        font-variant-numeric: tabular-nums;
-      }
+      .ct-prog-pct { font-size: 9px; font-weight: 700; color: #555; }
       .ct-track {
-        height: 6px;
-        background: #F0F0F0;
-        border-radius: 3px;
-        overflow: hidden;
-        position: relative;
+        height: 6px; background: #F0F0F0;
+        border-radius: 3px; overflow: hidden;
       }
       .ct-bar {
-        height: 100%;
-        border-radius: 3px;
+        height: 100%; border-radius: 3px;
         background: linear-gradient(90deg, #4CAF50, #81C784);
         transition: width 0.5s ease;
       }
       .ct-bar.over { background: linear-gradient(90deg, #D63030, #FF6B6B); }
-      .ct-prog-status {
-        font-size: 9px;
-        color: #888;
-        margin-top: 4px;
-        font-weight: 500;
-      }
+      .ct-prog-status { font-size: 9px; color: #888; margin-top: 4px; font-weight: 500; }
 
       /* Quality chips */
       .ct-qual-wrap {
-        padding: 10px 14px;
+        padding: 9px 14px;
         border-bottom: 1px solid #F0F0F0;
       }
       .ct-qual-lbl {
@@ -252,31 +263,32 @@
         font-weight: 600;
         margin-bottom: 7px;
       }
-      .ct-chips {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 5px;
-      }
+      .ct-chips { display: flex; flex-wrap: wrap; gap: 5px; }
       .ct-chip {
         display: inline-flex;
         flex-direction: column;
         align-items: flex-start;
-        padding: 4px 8px;
-        border-radius: 6px;
+        padding: 5px 9px;
+        border-radius: 7px;
         border: 1px solid;
-        font-size: 10px;
-        font-weight: 600;
-        line-height: 1.3;
-        white-space: nowrap;
+        cursor: pointer;
+        transition: all 0.12s;
+        user-select: none;
+      }
+      .ct-chip:hover { transform: translateY(-1px); filter: brightness(0.96); box-shadow: 0 2px 6px rgba(0,0,0,0.08); }
+      .ct-chip:active { transform: translateY(0); }
+      .ct-chip.ct-chip-active {
+        outline: 2px solid #1A1A1A;
+        outline-offset: 1px;
       }
       .ct-chip-q {
         font-size: 9px;
         font-weight: 700;
         letter-spacing: 0.3px;
-        opacity: 0.7;
+        opacity: 0.65;
       }
       .ct-chip-p {
-        font-size: 12px;
+        font-size: 13px;
         font-weight: 800;
         letter-spacing: -0.3px;
       }
@@ -286,17 +298,12 @@
         display: flex;
         align-items: center;
         justify-content: space-between;
-        padding: 8px 12px;
+        padding: 7px 12px;
         background: #FAFAFA;
-        border-top: 1px solid #F0F0F0;
         gap: 6px;
         flex-wrap: wrap;
       }
-      .ct-btns {
-        display: flex;
-        gap: 5px;
-        flex-wrap: wrap;
-      }
+      .ct-btns { display: flex; gap: 5px; flex-wrap: wrap; }
       .ct-btn {
         font-family: inherit;
         font-size: 10px;
@@ -309,57 +316,30 @@
         letter-spacing: 0.1px;
         line-height: 1.4;
       }
-      .ct-btn-reset {
-        background: #fff;
-        color: #555;
-        border-color: #DDD;
-      }
-      .ct-btn-reset:hover { background: #F5F5F5; border-color: #CCC; }
-      .ct-btn-toggle {
-        background: #fff;
-        color: #D63030;
-        border-color: #FFCCCC;
-      }
+      .ct-btn-reset { background: #fff; color: #555; border-color: #DDD; }
+      .ct-btn-reset:hover { background: #F5F5F5; }
+      .ct-btn-toggle { background: #fff; color: #D63030; border-color: #FFCCCC; }
       .ct-btn-toggle:hover { background: #FFF0F0; }
-      .ct-btn-toggle.active {
-        background: #D63030;
-        color: #fff;
-        border-color: #D63030;
-      }
-      .ct-socials {
-        display: flex;
-        gap: 4px;
-      }
+      .ct-btn-toggle.active { background: #D63030; color: #fff; border-color: #D63030; }
+      .ct-socials { display: flex; gap: 4px; }
       .ct-soc {
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        width: 26px; height: 22px;
-        border-radius: 5px;
-        background: #fff;
-        border: 1px solid #E5E5E5;
-        font-size: 9px;
-        font-weight: 800;
-        text-decoration: none;
-        color: #555;
-        letter-spacing: 0.3px;
+        display: flex; align-items: center; justify-content: center;
+        width: 26px; height: 22px; border-radius: 5px;
+        background: #fff; border: 1px solid #E5E5E5;
+        font-size: 9px; font-weight: 800; text-decoration: none; color: #555;
         transition: all 0.12s;
       }
       .ct-soc:hover { border-color: #D63030; color: #D63030; background: #FFF5F5; }
 
-      /* No-video placeholder */
       .ct-no-video {
-        padding: 12px 14px;
-        font-size: 11px;
-        color: #BBB;
-        text-align: center;
-        border-bottom: 1px solid #F0F0F0;
+        padding: 12px 14px; font-size: 11px; color: #BBB;
+        text-align: center; border-bottom: 1px solid #F0F0F0;
       }
     `;
     document.head.appendChild(s);
   }
 
-  // ── Build board HTML ──────────────────────────────────────────────
+  // ── Build board ───────────────────────────────────────────────────
   function createBoard() {
     const div = document.createElement('div');
     div.id = 'ct-board';
@@ -381,7 +361,7 @@
         </div>
         <div class="ct-stat">
           <div class="ct-stat-lbl">Абсолютный расход</div>
-          <div class="ct-stat-val ct-val-red" id="ct-abs">0 ₽</div>
+          <div class="ct-stat-val ct-red" id="ct-abs">0 ₽</div>
           <div class="ct-stat-sub">без учёта лимита</div>
         </div>
         <div class="ct-stat">
@@ -391,8 +371,8 @@
         </div>
         <div class="ct-stat">
           <div class="ct-stat-lbl">Итого за ролик</div>
-          <div class="ct-stat-val ct-val-red" id="ct-video-total">—</div>
-          <div class="ct-stat-sub" id="ct-video-q">выбор качества</div>
+          <div class="ct-stat-val ct-red" id="ct-video-total">—</div>
+          <div class="ct-stat-sub" id="ct-video-q">ожидание...</div>
         </div>
       </div>
 
@@ -401,23 +381,20 @@
           <span class="ct-prog-lbl">Ежемесячный лимит · 15 ГБ</span>
           <span class="ct-prog-pct" id="ct-pct">0%</span>
         </div>
-        <div class="ct-track">
-          <div class="ct-bar" id="ct-bar" style="width:0%"></div>
-        </div>
+        <div class="ct-track"><div class="ct-bar" id="ct-bar" style="width:0%"></div></div>
         <div class="ct-prog-status" id="ct-status">Бесплатно ещё 15,00 ГБ</div>
       </div>
 
       <div id="ct-qual-section" class="ct-qual-wrap" style="display:none">
-        <div class="ct-qual-lbl">Стоимость по качеству</div>
+        <div class="ct-qual-lbl">Стоимость по качеству — нажми чтобы переключить</div>
         <div class="ct-chips" id="ct-chips"></div>
       </div>
-
-      <div id="ct-no-video" class="ct-no-video">Откройте видео для расчёта стоимости</div>
+      <div id="ct-no-video" class="ct-no-video">Откройте видео — появится расчёт стоимости</div>
 
       <div class="ct-foot">
         <div class="ct-btns">
           <button class="ct-btn ct-btn-reset" id="ct-reset">Сбросить статистику</button>
-          <button class="ct-btn ct-btn-toggle" id="ct-toggle-limit">Без лимита</button>
+          <button class="ct-btn ct-btn-toggle" id="ct-toggle">Без лимита</button>
         </div>
         <div class="ct-socials">
           <a class="ct-soc" href="https://www.youtube.com/@ruwear" target="_blank">Yt</a>
@@ -427,7 +404,6 @@
       </div>
     `;
 
-    // Reset button
     div.querySelector('#ct-reset').addEventListener('click', () => {
       if (confirm('Сбросить всю статистику трафика?')) {
         chrome.storage.local.set({ totalBytes: 0 }, () => {
@@ -437,234 +413,219 @@
       }
     });
 
-    // Toggle free limit
-    div.querySelector('#ct-toggle-limit').addEventListener('click', () => {
+    div.querySelector('#ct-toggle').addEventListener('click', () => {
       noFreeLimit = !noFreeLimit;
       chrome.storage.local.set({ noFreeLimit });
-      div.querySelector('#ct-toggle-limit').classList.toggle('active', noFreeLimit);
-      div.querySelector('#ct-toggle-limit').textContent = noFreeLimit ? '✓ Без лимита' : 'Без лимита';
       renderBoard();
     });
 
     return div;
   }
 
+  // ── Helpers ───────────────────────────────────────────────────────
+  function qEl(id) { return document.getElementById(id); }
+
+  function getCurrentQualityLabel() {
+    try {
+      const player = document.getElementById('movie_player');
+      if (player && typeof player.getPlaybackQuality === 'function') {
+        const ytQ = player.getPlaybackQuality();
+        const map = { hd2160: '2160p', hd1440: '1440p', hd1080: '1080p', hd720: '720p', large: '480p', medium: '360p', small: '240p', tiny: '144p' };
+        return map[ytQ] || null;
+      }
+    } catch (_) {}
+    // fallback by videoHeight
+    const v = document.querySelector('video');
+    if (!v || !v.videoHeight) return null;
+    const h = v.videoHeight;
+    if (h >= 2160) return '2160p';
+    if (h >= 1440) return '1440p';
+    if (h >= 1080) return '1080p';
+    if (h >= 720)  return '720p';
+    if (h >= 480)  return '480p';
+    if (h >= 360)  return '360p';
+    if (h >= 240)  return '240p';
+    return '144p';
+  }
+
   // ── Render ────────────────────────────────────────────────────────
   function renderBoard() {
-    const board = q('ct-board');
+    const board = qEl('ct-board');
     if (!board) return;
 
-    const video = qs('video');
+    detectMaxQuality();
+
+    const video = document.querySelector('video');
     const duration = video ? (video.duration || 0) : 0;
 
     getTotalBytes((totalBytes) => {
-      // ── Stats ──
+      // Stats
       const spent = calcCost(totalBytes, noFreeLimit);
       const absSpent = calcRawCost(totalBytes);
       const liveRaw = calcRawCost(currentVideoBytes);
 
-      q('ct-spent').textContent = ceilRub(spent);
-      q('ct-spent-gb').textContent = bytesToGB(totalBytes).toFixed(3) + ' ГБ';
-      q('ct-abs').textContent = ceilRub(absSpent);
-      q('ct-live').textContent = ceilRub(liveRaw);
-      q('ct-live-mb').textContent = (currentVideoBytes / 1024**2).toFixed(1) + ' МБ';
+      qEl('ct-spent').textContent = ceilRub(spent);
+      qEl('ct-spent-gb').textContent = bytesToGB(totalBytes).toFixed(3) + ' ГБ';
+      qEl('ct-abs').textContent = ceilRub(absSpent);
+      qEl('ct-live').textContent = ceilRub(liveRaw);
+      qEl('ct-live-mb').textContent = (currentVideoBytes / 1024**2).toFixed(1) + ' МБ';
 
-      // ── Toggle button state ──
-      const toggleBtn = q('ct-toggle-limit');
+      // Toggle button
+      const toggleBtn = qEl('ct-toggle');
       if (toggleBtn) {
         toggleBtn.classList.toggle('active', noFreeLimit);
         toggleBtn.textContent = noFreeLimit ? '✓ Без лимита' : 'Без лимита';
       }
 
-      // ── Progress ──
+      // Progress
       const usedGB = bytesToGB(totalBytes);
       const pct = Math.min(100, (usedGB / FREE_LIMIT_GB) * 100);
       const isOver = usedGB >= FREE_LIMIT_GB;
-      const bar = q('ct-bar');
+      const bar = qEl('ct-bar');
       bar.style.width = pct.toFixed(1) + '%';
       bar.className = 'ct-bar' + (isOver ? ' over' : '');
-      q('ct-pct').textContent = pct.toFixed(1) + '%';
-      const freeLeft = Math.max(0, FREE_LIMIT_GB - usedGB);
+      qEl('ct-pct').textContent = pct.toFixed(1) + '%';
+      const statusEl = qEl('ct-status');
       if (isOver) {
-        const over = (usedGB - FREE_LIMIT_GB).toFixed(2);
-        q('ct-status').textContent = `Перерасход: ${over} ГБ → платная зона`;
-        q('ct-status').style.color = '#D63030';
+        statusEl.textContent = `Перерасход: ${(usedGB - FREE_LIMIT_GB).toFixed(2)} ГБ → платная зона`;
+        statusEl.style.color = '#D63030';
       } else {
-        q('ct-status').textContent = `Бесплатно ещё ${freeLeft.toFixed(2)} ГБ`;
-        q('ct-status').style.color = '#1E7E34';
+        statusEl.textContent = `Бесплатно ещё ${(FREE_LIMIT_GB - usedGB).toFixed(2)} ГБ`;
+        statusEl.style.color = '#1E7E34';
       }
 
-      // ── Quality chips ──
+      // Quality chips
       if (duration > 0) {
-        q('ct-qual-section').style.display = '';
-        q('ct-no-video').style.display = 'none';
+        qEl('ct-qual-section').style.display = '';
+        qEl('ct-no-video').style.display = 'none';
 
-        const chips = q('ct-chips');
-        chips.innerHTML = '';
+        const currentLabel = getCurrentQualityLabel();
+        const avail = availableQualities();
+        const chips = qEl('ct-chips');
 
-        QUALITIES.forEach(({ label, mbps }, i) => {
-          const bytes = estimateBytes(mbps, duration);
-          const rawCost = calcRawCost(bytes);
-          const col = QUALITY_COLORS[i] || QUALITY_COLORS[QUALITY_COLORS.length - 1];
+        // Only rebuild chips if qualities changed (avoid flicker)
+        const existingLabels = [...chips.querySelectorAll('.ct-chip')].map(c => c.dataset.label).join(',');
+        const newLabels = avail.map(q => q.label).join(',');
+        if (existingLabels !== newLabels) {
+          chips.innerHTML = '';
+          avail.forEach(({ label, mbps }, i) => {
+            const bytes = estimateBytes(mbps, duration);
+            const rawCost = calcRawCost(bytes);
+            const col = QUALITY_COLORS[i] || QUALITY_COLORS[QUALITY_COLORS.length - 1];
 
-          const chip = document.createElement('div');
-          chip.className = 'ct-chip';
-          chip.style.background = col.bg;
-          chip.style.color = col.text;
-          chip.style.borderColor = col.border;
-          chip.innerHTML = `
-            <span class="ct-chip-q">${label}</span>
-            <span class="ct-chip-p">${ceilRub(rawCost)}</span>
-          `;
-          chips.appendChild(chip);
-        });
+            const chip = document.createElement('div');
+            chip.className = 'ct-chip' + (label === currentLabel ? ' ct-chip-active' : '');
+            chip.dataset.label = label;
+            chip.style.background = col.bg;
+            chip.style.color = col.text;
+            chip.style.borderColor = col.border;
+            chip.innerHTML = `<span class="ct-chip-q">${label}</span><span class="ct-chip-p">${ceilRub(rawCost)}</span>`;
 
-        // "Итого за ролик" — берём текущее выбранное качество из плеера
-        // Смотрим на <video> высоту как прокси для качества
-        const videoEl = qs('video');
-        let currentQ = null;
-        if (videoEl) {
-          const h = videoEl.videoHeight;
-          if (h >= 2160) currentQ = '2160p';
-          else if (h >= 1440) currentQ = '1440p';
-          else if (h >= 1080) currentQ = '1080p';
-          else if (h >= 720) currentQ = '720p';
-          else if (h >= 480) currentQ = '480p';
-          else if (h >= 360) currentQ = '360p';
-          else if (h >= 240) currentQ = '240p';
-          else if (h > 0) currentQ = '144p';
+            chip.addEventListener('click', () => {
+              setQuality(label);
+              // Update active state immediately
+              chips.querySelectorAll('.ct-chip').forEach(c => c.classList.remove('ct-chip-active'));
+              chip.classList.add('ct-chip-active');
+              // Update "итого" block
+              qEl('ct-video-total').textContent = ceilRub(rawCost);
+              qEl('ct-video-q').textContent = 'при ' + label;
+            });
+
+            chips.appendChild(chip);
+          });
+        } else {
+          // Just update active state
+          chips.querySelectorAll('.ct-chip').forEach(c => {
+            c.classList.toggle('ct-chip-active', c.dataset.label === currentLabel);
+          });
         }
 
-        if (currentQ) {
-          const q_data = QUALITIES.find(q => q.label === currentQ || q.label === currentQ + '60');
-          if (q_data) {
-            const videoBytes = estimateBytes(q_data.mbps, duration);
-            q('ct-video-total').textContent = ceilRub(calcRawCost(videoBytes));
-            q('ct-video-q').textContent = 'при ' + currentQ;
+        // "Итого за ролик"
+        if (currentLabel) {
+          const qData = QUALITIES.find(q => q.label === currentLabel);
+          if (qData) {
+            const videoBytes = estimateBytes(qData.mbps, duration);
+            qEl('ct-video-total').textContent = ceilRub(calcRawCost(videoBytes));
+            qEl('ct-video-q').textContent = 'при ' + currentLabel;
           }
         } else {
-          q('ct-video-total').textContent = '—';
-          q('ct-video-q').textContent = 'ожидание...';
+          qEl('ct-video-total').textContent = '—';
+          qEl('ct-video-q').textContent = 'ожидание...';
         }
       } else {
-        q('ct-qual-section').style.display = 'none';
-        q('ct-no-video').style.display = '';
-        q('ct-video-total').textContent = '—';
-        q('ct-video-q').textContent = 'нет видео';
+        qEl('ct-qual-section').style.display = 'none';
+        qEl('ct-no-video').style.display = '';
+        qEl('ct-video-total').textContent = '—';
+        qEl('ct-video-q').textContent = 'нет видео';
       }
     });
   }
 
-  // ── Insert board ABOVE iron-selector#chips ────────────────────────
+  // ── Insert BEFORE iron-selector#chips ────────────────────────────
   function insertBoard() {
-    if (q('ct-board')) {
-      renderBoard();
-      return;
-    }
-
-    // Target: iron-selector#chips inside yt-chip-cloud-renderer
-    // We need to insert BEFORE the ytd-item-section-renderer that contains it
-    // OR directly before the yt-chip-cloud-renderer wrapper
+    if (qEl('ct-board')) { renderBoard(); return; }
 
     function tryInsert() {
-      // Strategy 1: find iron-selector#chips → go up to ytd-item-section-renderer → insert before it
-      const ironSel = qs('iron-selector#chips');
+      // Primary target: the ytd-item-section-renderer containing iron-selector#chips
+      const ironSel = document.querySelector('iron-selector#chips');
       if (ironSel) {
-        // Walk up to find ytd-item-section-renderer (the whole chips block)
-        let target = ironSel;
-        while (target && target.tagName !== 'YTD-ITEM-SECTION-RENDERER') {
-          target = target.parentElement;
-        }
-        if (target && target.parentElement) {
+        let node = ironSel;
+        while (node && node.tagName !== 'YTD-ITEM-SECTION-RENDERER') node = node.parentElement;
+        if (node && node.parentElement) {
           injectCSS();
-          const board = createBoard();
-          target.parentElement.insertBefore(board, target);
+          node.parentElement.insertBefore(createBoard(), node);
           return true;
         }
-
-        // Strategy 2: insert before yt-related-chip-cloud-renderer
-        let target2 = ironSel;
-        while (target2 && target2.tagName !== 'YT-RELATED-CHIP-CLOUD-RENDERER') {
-          target2 = target2.parentElement;
-        }
-        if (target2 && target2.parentElement) {
+        // fallback: before yt-related-chip-cloud-renderer
+        let node2 = ironSel;
+        while (node2 && node2.tagName !== 'YT-RELATED-CHIP-CLOUD-RENDERER') node2 = node2.parentElement;
+        if (node2 && node2.parentElement) {
           injectCSS();
-          const board = createBoard();
-          target2.parentElement.insertBefore(board, target2);
+          node2.parentElement.insertBefore(createBoard(), node2);
           return true;
         }
       }
-
-      // Strategy 3: insert before #scroll-container inside yt-chip-cloud-renderer
-      const scrollContainer = qs('yt-chip-cloud-renderer #scroll-container');
-      if (scrollContainer) {
-        const cloudRenderer = scrollContainer.closest('yt-chip-cloud-renderer');
-        if (cloudRenderer) {
-          const outerSection = cloudRenderer.closest('ytd-item-section-renderer');
-          if (outerSection && outerSection.parentElement) {
-            injectCSS();
-            const board = createBoard();
-            outerSection.parentElement.insertBefore(board, outerSection);
-            return true;
-          }
-          // fallback: insert before cloudRenderer itself
-          if (cloudRenderer.parentElement) {
-            injectCSS();
-            const board = createBoard();
-            cloudRenderer.parentElement.insertBefore(board, cloudRenderer);
-            return true;
-          }
-        }
-      }
-
-      // Strategy 4: #secondary-inner first child
-      const secondary = qs('#secondary-inner');
-      if (secondary && secondary.firstChild) {
+      // Last resort: top of #secondary-inner
+      const sec = document.querySelector('#secondary-inner');
+      if (sec && sec.firstChild) {
         injectCSS();
-        const board = createBoard();
-        secondary.insertBefore(board, secondary.firstChild);
+        sec.insertBefore(createBoard(), sec.firstChild);
         return true;
       }
-
       return false;
     }
 
     if (!tryInsert()) {
-      // Wait and retry
       const check = setInterval(() => {
-        if (tryInsert()) {
-          clearInterval(check);
-          startBoardUpdates();
-        }
+        if (tryInsert()) { clearInterval(check); startUpdates(); }
       }, 500);
       setTimeout(() => clearInterval(check), 20000);
       return;
     }
-
-    startBoardUpdates();
+    startUpdates();
   }
 
-  function startBoardUpdates() {
+  function startUpdates() {
     renderBoard();
     if (boardInterval) clearInterval(boardInterval);
     boardInterval = setInterval(renderBoard, 1000);
   }
 
-  // ── Navigation watcher ────────────────────────────────────────────
+  // ── Navigation ────────────────────────────────────────────────────
   function watchNav() {
     let lastUrl = location.href;
     new MutationObserver(() => {
       if (location.href !== lastUrl) {
         lastUrl = location.href;
         currentVideoBytes = 0;
+        maxVideoHeight = 0;
         if (boardInterval) clearInterval(boardInterval);
-        q('ct-board')?.remove();
+        qEl('ct-board')?.remove();
         setTimeout(init, 1500);
       }
     }).observe(document.body, { subtree: true, childList: true });
   }
 
-  // ── Init ──────────────────────────────────────────────────────────
   function init() {
     if (!location.href.includes('/watch')) return;
     startTracking();
