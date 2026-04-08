@@ -1,0 +1,21 @@
+{
+  "manifest_version": 3,
+  "name": "CheburTube",
+  "short_name": "CheburTube",
+  "version": "3.0.0",
+  "description": "Показывает стоимость просмотра YouTube в рублях. 15 ГБ бесплатно, дальше 150₽/ГБ — как предлагает Минцифры.",
+  "permissions": ["storage", "activeTab"],
+  "host_permissions": ["*://*.youtube.com/*"],
+  "content_scripts": [
+    {
+      "matches": ["*://*.youtube.com/*"],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  }
+}
