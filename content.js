@@ -1,5 +1,4 @@
-// CheburTube v4 — content.js
-// Notion × Y2K × Frutiger Aero — white/grey/black + red accents
+// CheburTube v5 — content.js
 
 (() => {
   'use strict';
@@ -8,19 +7,17 @@
   const FREE_LIMIT_BYTES = FREE_LIMIT_GB * 1024 ** 3;
   const PRICE_PER_GB = 150;
 
-  // All qualities high → low
   const QUALITIES = [
-    { label: '2160p', mbps: 20.0, height: 2160 },
-    { label: '1440p', mbps: 10.0, height: 1440 },
-    { label: '1080p', mbps: 4.50, height: 1080 },
-    { label: '720p',  mbps: 2.50, height: 720  },
-    { label: '480p',  mbps: 0.80, height: 480  },
-    { label: '360p',  mbps: 0.50, height: 360  },
-    { label: '240p',  mbps: 0.25, height: 240  },
-    { label: '144p',  mbps: 0.10, height: 144  },
+    { label: '2160p', mbps: 20.0 },
+    { label: '1440p', mbps: 10.0 },
+    { label: '1080p', mbps: 4.50 },
+    { label: '720p',  mbps: 2.50 },
+    { label: '480p',  mbps: 0.80 },
+    { label: '360p',  mbps: 0.50 },
+    { label: '240p',  mbps: 0.25 },
+    { label: '144p',  mbps: 0.10 },
   ];
 
-  // Notion-style palette high→low
   const QUALITY_COLORS = [
     { bg: '#FFDDD2', text: '#C9321F', border: '#F5B8AC' },
     { bg: '#FFE7D0', text: '#C96B1F', border: '#F5CFB0' },
@@ -35,7 +32,7 @@
   let currentVideoBytes = 0;
   let boardInterval = null;
   let noFreeLimit = false;
-  let maxVideoHeight = 0; // detected max quality of current video
+  let perfObserver = null;
 
   // ── Storage ───────────────────────────────────────────────────────
   function saveBytes(bytes) {
@@ -66,59 +63,11 @@
     return (mbps * 1_000_000 / 8) * durationSec;
   }
 
-  // ── Detect available qualities from YouTube player ────────────────
-  function detectMaxQuality() {
-    try {
-      // YouTube player API
-      const player = document.getElementById('movie_player');
-      if (player && typeof player.getAvailableQualityLevels === 'function') {
-        const levels = player.getAvailableQualityLevels(); // e.g. ['hd2160','hd1080','hd720','large','medium','small','tiny']
-        const map = { hd2160: 2160, hd1440: 1440, hd1080: 1080, hd720: 720, large: 480, medium: 360, small: 240, tiny: 144 };
-        let max = 0;
-        for (const l of levels) { if (map[l] && map[l] > max) max = map[l]; }
-        if (max > 0) { maxVideoHeight = max; return; }
-      }
-    } catch (_) {}
-
-    // Fallback: use current video element resolution as minimum proxy
-    const v = document.querySelector('video');
-    if (v && v.videoHeight > 0) {
-      // videoHeight is the currently playing quality, not the max
-      // but we keep updating: if we see a higher value later, update
-      if (v.videoHeight > maxVideoHeight) maxVideoHeight = v.videoHeight;
-    }
-  }
-
-  // Filter qualities to show (only those ≤ maxVideoHeight)
-  function availableQualities() {
-    if (maxVideoHeight === 0) return QUALITIES; // not detected yet, show all
-    return QUALITIES.filter(q => q.height <= maxVideoHeight);
-  }
-
-  // ── Change quality via YouTube player API ─────────────────────────
-  function setQuality(label) {
-    try {
-      const player = document.getElementById('movie_player');
-      if (!player) return;
-
-      // Map label → YouTube quality string
-      const map = { '2160p': 'hd2160', '1440p': 'hd1440', '1080p': 'hd1080', '720p': 'hd720', '480p': 'large', '360p': 'medium', '240p': 'small', '144p': 'tiny' };
-      const ytQ = map[label];
-      if (!ytQ) return;
-
-      if (typeof player.setPlaybackQuality === 'function') {
-        player.setPlaybackQuality(ytQ);
-      }
-      if (typeof player.setPlaybackQualityRange === 'function') {
-        player.setPlaybackQualityRange(ytQ, ytQ);
-      }
-    } catch (e) { console.warn('CheburTube: setQuality failed', e); }
-  }
-
   // ── Byte tracking ─────────────────────────────────────────────────
   function startTracking() {
+    if (perfObserver) { try { perfObserver.disconnect(); } catch (_) {} }
     if (!window.PerformanceObserver) return;
-    const obs = new PerformanceObserver((list) => {
+    perfObserver = new PerformanceObserver((list) => {
       for (const e of list.getEntries()) {
         const url = e.name || '';
         if (url.includes('googlevideo.com') || url.includes('/videoplayback')) {
@@ -127,7 +76,29 @@
         }
       }
     });
-    try { obs.observe({ entryTypes: ['resource'] }); } catch (_) {}
+    try { perfObserver.observe({ entryTypes: ['resource'] }); } catch (_) {}
+  }
+
+  // ── Current quality label ─────────────────────────────────────────
+  function getCurrentQualityLabel() {
+    try {
+      const player = document.getElementById('movie_player');
+      if (player && typeof player.getPlaybackQuality === 'function') {
+        const map = { hd2160:'2160p', hd1440:'1440p', hd1080:'1080p', hd720:'720p', large:'480p', medium:'360p', small:'240p', tiny:'144p' };
+        return map[player.getPlaybackQuality()] || null;
+      }
+    } catch (_) {}
+    const v = document.querySelector('video');
+    if (!v || !v.videoHeight) return null;
+    const h = v.videoHeight;
+    if (h >= 2160) return '2160p';
+    if (h >= 1440) return '1440p';
+    if (h >= 1080) return '1080p';
+    if (h >= 720)  return '720p';
+    if (h >= 480)  return '480p';
+    if (h >= 360)  return '360p';
+    if (h >= 240)  return '240p';
+    return '144p';
   }
 
   // ── CSS ───────────────────────────────────────────────────────────
@@ -138,7 +109,7 @@
     s.textContent = `
       #ct-board {
         font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-        background: #FFFFFF;
+        background: #FFF;
         border: 1px solid #E5E5E5;
         border-radius: 12px;
         overflow: hidden;
@@ -147,22 +118,13 @@
         color: #1A1A1A;
         box-shadow: 0 1px 3px rgba(0,0,0,0.06), 0 4px 16px rgba(0,0,0,0.04);
       }
-
-      /* Header */
       .ct-hdr {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
+        display: flex; align-items: center; justify-content: space-between;
         padding: 9px 14px 8px;
         border-bottom: 1px solid #F0F0F0;
         background: linear-gradient(180deg, #FAFAFA 0%, #F5F5F5 100%);
       }
-      .ct-name {
-        font-size: 13px;
-        font-weight: 700;
-        letter-spacing: -0.3px;
-        color: #111;
-      }
+      .ct-name { font-size: 13px; font-weight: 700; letter-spacing: -0.3px; color: #111; }
       .ct-dots { display: flex; gap: 5px; align-items: center; }
       .ct-dot {
         width: 11px; height: 11px; border-radius: 50%;
@@ -172,7 +134,6 @@
       .ct-dot-y { background: radial-gradient(circle at 35% 35%, #FFD062, #E0A01A); }
       .ct-dot-g { background: radial-gradient(circle at 35% 35%, #66D166, #2AA82A); }
 
-      /* Stats — 2×2 grid */
       .ct-stats {
         display: grid;
         grid-template-columns: 1fr 1fr;
@@ -188,133 +149,56 @@
       .ct-stat:nth-child(3) { border-bottom: none; }
       .ct-stat:nth-child(4) { border-right: none; border-bottom: none; }
       .ct-stat-lbl {
-        font-size: 9px;
-        text-transform: uppercase;
-        letter-spacing: 0.7px;
-        color: #999;
-        font-weight: 600;
-        margin-bottom: 3px;
-        white-space: nowrap;
-        overflow: hidden;
-        text-overflow: ellipsis;
+        font-size: 9px; text-transform: uppercase; letter-spacing: 0.7px;
+        color: #999; font-weight: 600; margin-bottom: 3px;
+        white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
       }
       .ct-stat-val {
-        font-size: 17px;
-        font-weight: 800;
-        letter-spacing: -0.5px;
-        color: #111;
-        line-height: 1.1;
-        white-space: nowrap;
-        overflow: hidden;
-        text-overflow: ellipsis;
+        font-size: 17px; font-weight: 800; letter-spacing: -0.5px;
+        color: #111; line-height: 1.1;
+        white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
       }
       .ct-stat-sub {
-        font-size: 9px;
-        color: #BBB;
-        margin-top: 2px;
-        white-space: nowrap;
-        overflow: hidden;
-        text-overflow: ellipsis;
+        font-size: 9px; color: #BBB; margin-top: 2px;
+        white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
       }
       .ct-red { color: #D63030 !important; }
-      .ct-green { color: #1E7E34 !important; }
 
-      /* Progress */
-      .ct-prog-wrap {
-        padding: 8px 14px;
-        border-bottom: 1px solid #F0F0F0;
-      }
-      .ct-prog-row {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        margin-bottom: 5px;
-      }
-      .ct-prog-lbl {
-        font-size: 9px;
-        text-transform: uppercase;
-        letter-spacing: 0.7px;
-        color: #999;
-        font-weight: 600;
-      }
+      .ct-prog-wrap { padding: 8px 14px; border-bottom: 1px solid #F0F0F0; }
+      .ct-prog-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 5px; }
+      .ct-prog-lbl { font-size: 9px; text-transform: uppercase; letter-spacing: 0.7px; color: #999; font-weight: 600; }
       .ct-prog-pct { font-size: 9px; font-weight: 700; color: #555; }
-      .ct-track {
-        height: 6px; background: #F0F0F0;
-        border-radius: 3px; overflow: hidden;
-      }
-      .ct-bar {
-        height: 100%; border-radius: 3px;
-        background: linear-gradient(90deg, #4CAF50, #81C784);
-        transition: width 0.5s ease;
-      }
+      .ct-track { height: 6px; background: #F0F0F0; border-radius: 3px; overflow: hidden; }
+      .ct-bar { height: 100%; border-radius: 3px; background: linear-gradient(90deg, #4CAF50, #81C784); transition: width 0.5s ease; }
       .ct-bar.over { background: linear-gradient(90deg, #D63030, #FF6B6B); }
       .ct-prog-status { font-size: 9px; color: #888; margin-top: 4px; font-weight: 500; }
 
-      /* Quality chips */
-      .ct-qual-wrap {
-        padding: 9px 14px;
-        border-bottom: 1px solid #F0F0F0;
-      }
-      .ct-qual-lbl {
-        font-size: 9px;
-        text-transform: uppercase;
-        letter-spacing: 0.7px;
-        color: #999;
-        font-weight: 600;
-        margin-bottom: 7px;
-      }
+      .ct-qual-wrap { padding: 9px 14px; border-bottom: 1px solid #F0F0F0; }
+      .ct-qual-lbl { font-size: 9px; text-transform: uppercase; letter-spacing: 0.7px; color: #999; font-weight: 600; margin-bottom: 7px; }
       .ct-chips { display: flex; flex-wrap: wrap; gap: 5px; }
       .ct-chip {
-        display: inline-flex;
-        flex-direction: column;
-        align-items: flex-start;
-        padding: 5px 9px;
-        border-radius: 7px;
-        border: 1px solid;
-        cursor: pointer;
-        transition: all 0.12s;
+        display: inline-flex; flex-direction: column; align-items: flex-start;
+        padding: 5px 9px; border-radius: 7px; border: 1px solid;
         user-select: none;
+        transition: box-shadow 0.12s;
       }
-      .ct-chip:hover { transform: translateY(-1px); filter: brightness(0.96); box-shadow: 0 2px 6px rgba(0,0,0,0.08); }
-      .ct-chip:active { transform: translateY(0); }
       .ct-chip.ct-chip-active {
         outline: 2px solid #1A1A1A;
         outline-offset: 1px;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.12);
       }
-      .ct-chip-q {
-        font-size: 9px;
-        font-weight: 700;
-        letter-spacing: 0.3px;
-        opacity: 0.65;
-      }
-      .ct-chip-p {
-        font-size: 13px;
-        font-weight: 800;
-        letter-spacing: -0.3px;
-      }
+      .ct-chip-q { font-size: 9px; font-weight: 700; letter-spacing: 0.3px; opacity: 0.65; }
+      .ct-chip-p { font-size: 13px; font-weight: 800; letter-spacing: -0.3px; }
 
-      /* Footer */
       .ct-foot {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        padding: 7px 12px;
-        background: #FAFAFA;
-        gap: 6px;
-        flex-wrap: wrap;
+        display: flex; align-items: center; justify-content: space-between;
+        padding: 7px 12px; background: #FAFAFA; gap: 6px; flex-wrap: wrap;
       }
       .ct-btns { display: flex; gap: 5px; flex-wrap: wrap; }
       .ct-btn {
-        font-family: inherit;
-        font-size: 10px;
-        font-weight: 600;
-        padding: 4px 10px;
-        border-radius: 6px;
-        border: 1px solid;
-        cursor: pointer;
-        transition: all 0.12s;
-        letter-spacing: 0.1px;
-        line-height: 1.4;
+        font-family: inherit; font-size: 10px; font-weight: 600;
+        padding: 4px 10px; border-radius: 6px; border: 1px solid;
+        cursor: pointer; transition: all 0.12s; letter-spacing: 0.1px; line-height: 1.4;
       }
       .ct-btn-reset { background: #fff; color: #555; border-color: #DDD; }
       .ct-btn-reset:hover { background: #F5F5F5; }
@@ -330,7 +214,6 @@
         transition: all 0.12s;
       }
       .ct-soc:hover { border-color: #D63030; color: #D63030; background: #FFF5F5; }
-
       .ct-no-video {
         padding: 12px 14px; font-size: 11px; color: #BBB;
         text-align: center; border-bottom: 1px solid #F0F0F0;
@@ -339,8 +222,8 @@
     document.head.appendChild(s);
   }
 
-  // ── Build board ───────────────────────────────────────────────────
-  function createBoard() {
+  // ── Build board HTML ──────────────────────────────────────────────
+  function buildBoardHTML() {
     const div = document.createElement('div');
     div.id = 'ct-board';
     div.innerHTML = `
@@ -352,7 +235,6 @@
           <div class="ct-dot ct-dot-g"></div>
         </div>
       </div>
-
       <div class="ct-stats">
         <div class="ct-stat">
           <div class="ct-stat-lbl">Всего потрачено</div>
@@ -375,7 +257,6 @@
           <div class="ct-stat-sub" id="ct-video-q">ожидание...</div>
         </div>
       </div>
-
       <div class="ct-prog-wrap">
         <div class="ct-prog-row">
           <span class="ct-prog-lbl">Ежемесячный лимит · 15 ГБ</span>
@@ -384,17 +265,15 @@
         <div class="ct-track"><div class="ct-bar" id="ct-bar" style="width:0%"></div></div>
         <div class="ct-prog-status" id="ct-status">Бесплатно ещё 15,00 ГБ</div>
       </div>
-
       <div id="ct-qual-section" class="ct-qual-wrap" style="display:none">
-        <div class="ct-qual-lbl">Стоимость по качеству — нажми чтобы переключить</div>
+        <div class="ct-qual-lbl">Стоимость по качеству</div>
         <div class="ct-chips" id="ct-chips"></div>
       </div>
       <div id="ct-no-video" class="ct-no-video">Откройте видео — появится расчёт стоимости</div>
-
       <div class="ct-foot">
         <div class="ct-btns">
           <button class="ct-btn ct-btn-reset" id="ct-reset">Сбросить статистику</button>
-          <button class="ct-btn ct-btn-toggle" id="ct-toggle">Без лимита</button>
+          <button class="ct-btn ct-btn-toggle" id="ct-toggle">No free 15 GB</button>
         </div>
         <div class="ct-socials">
           <a class="ct-soc" href="https://www.youtube.com/@ruwear" target="_blank">Yt</a>
@@ -425,56 +304,27 @@
   // ── Helpers ───────────────────────────────────────────────────────
   function qEl(id) { return document.getElementById(id); }
 
-  function getCurrentQualityLabel() {
-    try {
-      const player = document.getElementById('movie_player');
-      if (player && typeof player.getPlaybackQuality === 'function') {
-        const ytQ = player.getPlaybackQuality();
-        const map = { hd2160: '2160p', hd1440: '1440p', hd1080: '1080p', hd720: '720p', large: '480p', medium: '360p', small: '240p', tiny: '144p' };
-        return map[ytQ] || null;
-      }
-    } catch (_) {}
-    // fallback by videoHeight
-    const v = document.querySelector('video');
-    if (!v || !v.videoHeight) return null;
-    const h = v.videoHeight;
-    if (h >= 2160) return '2160p';
-    if (h >= 1440) return '1440p';
-    if (h >= 1080) return '1080p';
-    if (h >= 720)  return '720p';
-    if (h >= 480)  return '480p';
-    if (h >= 360)  return '360p';
-    if (h >= 240)  return '240p';
-    return '144p';
-  }
-
   // ── Render ────────────────────────────────────────────────────────
   function renderBoard() {
     const board = qEl('ct-board');
     if (!board) return;
-
-    detectMaxQuality();
 
     const video = document.querySelector('video');
     const duration = video ? (video.duration || 0) : 0;
 
     getTotalBytes((totalBytes) => {
       // Stats
-      const spent = calcCost(totalBytes, noFreeLimit);
-      const absSpent = calcRawCost(totalBytes);
-      const liveRaw = calcRawCost(currentVideoBytes);
-
-      qEl('ct-spent').textContent = ceilRub(spent);
+      qEl('ct-spent').textContent = ceilRub(calcCost(totalBytes, noFreeLimit));
       qEl('ct-spent-gb').textContent = bytesToGB(totalBytes).toFixed(3) + ' ГБ';
-      qEl('ct-abs').textContent = ceilRub(absSpent);
-      qEl('ct-live').textContent = ceilRub(liveRaw);
+      qEl('ct-abs').textContent = ceilRub(calcRawCost(totalBytes));
+      qEl('ct-live').textContent = ceilRub(calcRawCost(currentVideoBytes));
       qEl('ct-live-mb').textContent = (currentVideoBytes / 1024**2).toFixed(1) + ' МБ';
 
       // Toggle button
-      const toggleBtn = qEl('ct-toggle');
-      if (toggleBtn) {
-        toggleBtn.classList.toggle('active', noFreeLimit);
-        toggleBtn.textContent = noFreeLimit ? '✓ Без лимита' : 'Без лимита';
+      const btn = qEl('ct-toggle');
+      if (btn) {
+        btn.classList.toggle('active', noFreeLimit);
+        btn.textContent = noFreeLimit ? '✓ No free 15 GB' : 'No free 15 GB';
       }
 
       // Progress
@@ -500,52 +350,37 @@
         qEl('ct-no-video').style.display = 'none';
 
         const currentLabel = getCurrentQualityLabel();
-        const avail = availableQualities();
         const chips = qEl('ct-chips');
 
-        // Only rebuild chips if qualities changed (avoid flicker)
-        const existingLabels = [...chips.querySelectorAll('.ct-chip')].map(c => c.dataset.label).join(',');
-        const newLabels = avail.map(q => q.label).join(',');
-        if (existingLabels !== newLabels) {
+        // Build chips once (no re-render on every tick — only update active state)
+        if (!chips.dataset.built) {
+          chips.dataset.built = '1';
           chips.innerHTML = '';
-          avail.forEach(({ label, mbps }, i) => {
+          QUALITIES.forEach(({ label, mbps }, i) => {
             const bytes = estimateBytes(mbps, duration);
-            const rawCost = calcRawCost(bytes);
             const col = QUALITY_COLORS[i] || QUALITY_COLORS[QUALITY_COLORS.length - 1];
-
             const chip = document.createElement('div');
-            chip.className = 'ct-chip' + (label === currentLabel ? ' ct-chip-active' : '');
+            chip.className = 'ct-chip';
             chip.dataset.label = label;
+            chip.dataset.cost = ceilRub(calcRawCost(bytes));
             chip.style.background = col.bg;
             chip.style.color = col.text;
             chip.style.borderColor = col.border;
-            chip.innerHTML = `<span class="ct-chip-q">${label}</span><span class="ct-chip-p">${ceilRub(rawCost)}</span>`;
-
-            chip.addEventListener('click', () => {
-              setQuality(label);
-              // Update active state immediately
-              chips.querySelectorAll('.ct-chip').forEach(c => c.classList.remove('ct-chip-active'));
-              chip.classList.add('ct-chip-active');
-              // Update "итого" block
-              qEl('ct-video-total').textContent = ceilRub(rawCost);
-              qEl('ct-video-q').textContent = 'при ' + label;
-            });
-
+            chip.innerHTML = `<span class="ct-chip-q">${label}</span><span class="ct-chip-p">${ceilRub(calcRawCost(bytes))}</span>`;
             chips.appendChild(chip);
           });
-        } else {
-          // Just update active state
-          chips.querySelectorAll('.ct-chip').forEach(c => {
-            c.classList.toggle('ct-chip-active', c.dataset.label === currentLabel);
-          });
         }
+
+        // Update active chip highlight
+        chips.querySelectorAll('.ct-chip').forEach(c => {
+          c.classList.toggle('ct-chip-active', c.dataset.label === currentLabel);
+        });
 
         // "Итого за ролик"
         if (currentLabel) {
           const qData = QUALITIES.find(q => q.label === currentLabel);
           if (qData) {
-            const videoBytes = estimateBytes(qData.mbps, duration);
-            qEl('ct-video-total').textContent = ceilRub(calcRawCost(videoBytes));
+            qEl('ct-video-total').textContent = ceilRub(calcRawCost(estimateBytes(qData.mbps, duration)));
             qEl('ct-video-q').textContent = 'при ' + currentLabel;
           }
         } else {
@@ -561,48 +396,39 @@
     });
   }
 
-  // ── Insert BEFORE iron-selector#chips ────────────────────────────
+  // ── Find insertion point and insert board ─────────────────────────
+  function getInsertionPoint() {
+    // iron-selector#chips → walk up to ytd-item-section-renderer → insert before it
+    const ironSel = document.querySelector('iron-selector#chips');
+    if (ironSel) {
+      let node = ironSel;
+      while (node && node.tagName !== 'YTD-ITEM-SECTION-RENDERER') node = node.parentElement;
+      if (node && node.parentElement) return { parent: node.parentElement, before: node };
+
+      // fallback: before yt-related-chip-cloud-renderer
+      let node2 = ironSel;
+      while (node2 && node2.tagName !== 'YT-RELATED-CHIP-CLOUD-RENDERER') node2 = node2.parentElement;
+      if (node2 && node2.parentElement) return { parent: node2.parentElement, before: node2 };
+    }
+
+    // Last resort: top of #secondary-inner
+    const sec = document.querySelector('#secondary-inner');
+    if (sec && sec.firstChild) return { parent: sec, before: sec.firstChild };
+
+    return null;
+  }
+
   function insertBoard() {
+    // Board already exists — just make sure it's rendering
     if (qEl('ct-board')) { renderBoard(); return; }
 
-    function tryInsert() {
-      // Primary target: the ytd-item-section-renderer containing iron-selector#chips
-      const ironSel = document.querySelector('iron-selector#chips');
-      if (ironSel) {
-        let node = ironSel;
-        while (node && node.tagName !== 'YTD-ITEM-SECTION-RENDERER') node = node.parentElement;
-        if (node && node.parentElement) {
-          injectCSS();
-          node.parentElement.insertBefore(createBoard(), node);
-          return true;
-        }
-        // fallback: before yt-related-chip-cloud-renderer
-        let node2 = ironSel;
-        while (node2 && node2.tagName !== 'YT-RELATED-CHIP-CLOUD-RENDERER') node2 = node2.parentElement;
-        if (node2 && node2.parentElement) {
-          injectCSS();
-          node2.parentElement.insertBefore(createBoard(), node2);
-          return true;
-        }
-      }
-      // Last resort: top of #secondary-inner
-      const sec = document.querySelector('#secondary-inner');
-      if (sec && sec.firstChild) {
-        injectCSS();
-        sec.insertBefore(createBoard(), sec.firstChild);
-        return true;
-      }
-      return false;
-    }
+    const pt = getInsertionPoint();
+    if (!pt) return false;
 
-    if (!tryInsert()) {
-      const check = setInterval(() => {
-        if (tryInsert()) { clearInterval(check); startUpdates(); }
-      }, 500);
-      setTimeout(() => clearInterval(check), 20000);
-      return;
-    }
-    startUpdates();
+    injectCSS();
+    const board = buildBoardHTML();
+    pt.parent.insertBefore(board, pt.before);
+    return true;
   }
 
   function startUpdates() {
@@ -611,31 +437,72 @@
     boardInterval = setInterval(renderBoard, 1000);
   }
 
-  // ── Navigation ────────────────────────────────────────────────────
-  function watchNav() {
-    let lastUrl = location.href;
-    new MutationObserver(() => {
-      if (location.href !== lastUrl) {
-        lastUrl = location.href;
-        currentVideoBytes = 0;
-        maxVideoHeight = 0;
-        if (boardInterval) clearInterval(boardInterval);
-        qEl('ct-board')?.remove();
-        setTimeout(init, 1500);
-      }
-    }).observe(document.body, { subtree: true, childList: true });
+  // ── Navigation — key fix: watch for YouTube SPA transitions ───────
+  // YouTube fires yt-navigate-finish when it fully loads a new page
+  // We also watch for URL changes and ytd-page-manager mutations
+
+  function onNavigate() {
+    if (!location.href.includes('/watch')) return;
+
+    currentVideoBytes = 0;
+
+    // Remove old board if present (it may be stale from old page)
+    qEl('ct-board')?.remove();
+
+    // Restart tracker for new video
+    startTracking();
+
+    // Try to insert immediately, then retry if DOM not ready yet
+    if (!insertBoard()) {
+      const check = setInterval(() => {
+        if (insertBoard()) { clearInterval(check); startUpdates(); }
+      }, 400);
+      setTimeout(() => clearInterval(check), 20000);
+    } else {
+      startUpdates();
+    }
   }
 
+  function watchNav() {
+    // 1. YouTube's own navigation event (most reliable)
+    window.addEventListener('yt-navigate-finish', () => {
+      setTimeout(onNavigate, 300);
+    });
+
+    // 2. URL polling fallback (catches cases where yt-navigate-finish doesn't fire)
+    let lastUrl = location.href;
+    setInterval(() => {
+      if (location.href !== lastUrl) {
+        lastUrl = location.href;
+        setTimeout(onNavigate, 500);
+      }
+    }, 500);
+
+    // 3. popstate (back/forward)
+    window.addEventListener('popstate', () => setTimeout(onNavigate, 500));
+  }
+
+  // ── Boot ──────────────────────────────────────────────────────────
   function init() {
-    if (!location.href.includes('/watch')) return;
     startTracking();
-    insertBoard();
+    watchNav();
+
+    if (location.href.includes('/watch')) {
+      // Initial load on a watch page
+      if (!insertBoard()) {
+        const check = setInterval(() => {
+          if (insertBoard()) { clearInterval(check); startUpdates(); }
+        }, 400);
+        setTimeout(() => clearInterval(check), 20000);
+      } else {
+        startUpdates();
+      }
+    }
   }
 
   if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', () => { init(); watchNav(); });
+    document.addEventListener('DOMContentLoaded', init);
   } else {
     init();
-    watchNav();
   }
 })();
