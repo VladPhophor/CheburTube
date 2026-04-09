@@ -1,70 +1,70 @@
 # CheburTube
 
-A Chrome extension that calculates the cost of watching YouTube videos in Russian rubles, based on the traffic pricing model proposed by the Russian Ministry of Digital Development (Mintsifry) in March 2026: 15 GB of international traffic per month at no charge, with each additional gigabyte billed at 150 ₽.
+Расширение для Chrome, которое в реальном времени считает стоимость просмотра YouTube в рублях — по тарифной модели, которую Министерство цифрового развития России обсуждало с мобильными операторами в марте 2026 года: первые 15 ГБ международного трафика в месяц бесплатно, каждый дополнительный гигабайт — 150 ₽.
 
-The extension makes an abstract regulatory proposal concrete and personal — showing the real monetary cost of each video, each quality setting, and each session.
-
----
-
-## Installation
-
-CheburTube is not listed on the Chrome Web Store. Installation is manual.
-
-**Requirements:** Google Chrome or any Chromium-based browser.
-
-1. Download this repository:
-   - Click **Code → Download ZIP** and extract, or
-   - Run `git clone https://github.com/VladPhophor/CheburTube.git`
-
-2. Open Chrome and navigate to `chrome://extensions/`
-
-3. Enable **Developer mode** using the toggle in the top-right corner.
-
-4. Click **Load unpacked** and select the `CheburTube` folder (the directory containing `manifest.json`).
-
-5. Open any video on YouTube. The panel will appear in the right sidebar, above the recommended videos.
+Расширение делает абстрактную регуляторную инициативу конкретной и личной: сколько стоит каждое видео, каждое качество, каждая сессия просмотра.
 
 ---
 
-## What it shows
+## Установка
 
-| Field | Description |
+CheburTube не размещён в Chrome Web Store. Установка производится вручную.
+
+**Требования:** Google Chrome или любой браузер на базе Chromium.
+
+1. Скачайте репозиторий:
+   - Нажмите **Code → Download ZIP** и распакуйте архив, либо
+   - Выполните `git clone https://github.com/VladPhophor/CheburTube.git`
+
+2. Откройте Chrome и перейдите по адресу `chrome://extensions/`
+
+3. Включите **Режим разработчика** — переключатель в правом верхнем углу.
+
+4. Нажмите **Загрузить распакованное расширение** и выберите папку `CheburTube` (ту, где находится `manifest.json`).
+
+5. Откройте любое видео на YouTube. Панель появится в правой колонке над рекомендованными видео.
+
+---
+
+## Что показывает панель
+
+| Поле | Описание |
 |---|---|
-| **Всего потрачено** | Cumulative cost, accounting for the 15 GB free tier |
-| **Абсолютный расход** | Total cost without any free allowance |
-| **Реалтайм** | Cost of bytes downloaded during the current viewing session |
-| **Итого за ролик** | Estimated full cost of the current video at the active quality level |
-| **Ежемесячный лимит** | Progress toward the 15 GB monthly threshold |
-| **Стоимость по качеству** | Per-quality cost chips for the current video; the active quality is highlighted |
+| **Всего потрачено** | Накопленные расходы с учётом бесплатных 15 ГБ |
+| **Абсолютный расход** | Сколько стоило бы всё скачанное без учёта бесплатного лимита |
+| **Реалтайм** | Стоимость трафика, скачанного в текущей сессии просмотра |
+| **Итого за ролик** | Сколько конкретно этот ролик добавит к счёту — с учётом остатка бесплатного лимита |
+| **Ежемесячный лимит** | Прогресс использования 15 ГБ |
+| **Стоимость по качеству** | Абсолютная цена просмотра этого ролика в каждом качестве; текущее качество выделено |
 
-### Controls
+### Кнопки управления
 
-- **Сбросить статистику** — Clears all accumulated traffic data from local storage
-- **No free 15 GB** — Disables the free tier and bills from the first byte
+- **Сбросить статистику** — удаляет все накопленные данные о трафике из локального хранилища
+- **No free 15 GB** — отключает бесплатный лимит и начинает считать с первого байта
 
 ---
 
-## Pricing model
+## Тарифная модель
 
-| Tier | Rate |
+| Порог | Ставка |
 |---|---|
-| First 15 GB / month | Free |
-| Each additional GB | 150 ₽ |
+| Первые 15 ГБ в месяц | Бесплатно |
+| Каждый следующий ГБ | 150 ₽ |
 
-This mirrors the proposal discussed by Mintsifry with mobile operators in late March 2026, intended to apply to international traffic on mobile networks.
-
----
-
-## Technical notes
-
-- All data is stored locally in `chrome.storage.local`. Nothing is sent to any server.
-- Traffic is measured using the browser's `PerformanceObserver` API, tracking requests to `googlevideo.com` and `/videoplayback` endpoints.
-- The extension responds to YouTube's single-page navigation events and automatically updates when moving between videos.
-- The interface follows the active YouTube color scheme (light or dark).
+Именно эти параметры обсуждались на совещании Минцифры с операторами связи в конце марта 2026 года.
 
 ---
 
-## Author
+## Техническое устройство
+
+- Все данные хранятся локально в `chrome.storage.local`. Ничего не отправляется на внешние серверы.
+- Трафик измеряется через браузерный `PerformanceObserver` API — отслеживаются запросы к `googlevideo.com` и эндпоинту `/videoplayback`.
+- Расширение реагирует на навигационные события YouTube и автоматически обновляется при переходе между видео.
+- Интерфейс следует цветовой теме YouTube (светлая или тёмная).
+
+---
+
+## Автор
 
 - YouTube: [@ruwear](https://www.youtube.com/@ruwear)
 - Telegram: [@ruw3ar](https://t.me/ruw3ar)
@@ -72,6 +72,6 @@ This mirrors the proposal discussed by Mintsifry with mobile operators in late M
 
 ---
 
-## License
+## Лицензия
 
 MIT
